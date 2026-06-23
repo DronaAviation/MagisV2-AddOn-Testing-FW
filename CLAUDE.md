@@ -31,7 +31,9 @@ Build outputs go to `Build/<TARGET>/`. `SERIAL_DEVICE` defaults to the first `/d
 
 **The `src/test/` GoogleTest suite is unmaintained and does not build — do not use it.** Its Makefile still references `.c` sources that were migrated to `.cpp`, so `make test` fails immediately (`No rule to make target '../main/common/maths.c'`). It was never updated after the C++ migration and is not part of any current workflow. The working verification path for a change is the firmware **build** (see above) — confirm it compiles for all targets and fits in flash/RAM. Don't try to revive these tests unless explicitly asked.
 
-In normal use, the maintainer builds, cleans, selects targets, and flashes (STM32 DFU/bootloader mode) through the **PlutoIDE VS Code extension**, which wraps this Makefile and the toolchain.
+In normal use, the maintainer builds, cleans, selects targets, and flashes (STM32 DFU/bootloader mode) through the **PlutoIDE VS Code extension**, which wraps this Makefile and the toolchain. Agents can build-verify all targets with the `run-magisv2` skill driver (it puts the ARM toolchain on `PATH`, builds each target, and checks the flash/RAM budget).
+
+**IDE diagnostics are unreliable here — verify with the GCC build, not the editor.** The VS Code clang/IntelliSense config lacks the Makefile's include paths and `-D` defines, so it reports false errors on `PlutoPilot.cpp` and `src/main` files (`'common/axis.h' file not found`, `'API/Oled.h' file not found`, "undeclared identifier", etc.). Ignore these; only treat a diagnostic as real if the `arm-none-eabi` GCC build also reports it.
 
 ## Architecture
 
@@ -42,8 +44,6 @@ In normal use, the maintainer builds, cleans, selects targets, and flashes (STM3
 **Two-layer API (Drona additions on top of Cleanflight).**
 - `src/main/API/` — public headers exposed to user code (`FC-Data.h`, `FC-Control.h`, `Motor.h`, `Oled.h`, `Peripherals.h`, `Serial-IO.h`, `XRanging.h`, `Scheduler-Timer.h`, `RxConfig.h`, `Localisation.h`, `Debugging.h`, …).
 - `src/main/API-Src/` — their implementations, which wrap the internal Cleanflight subsystems. This API layer is the seam between user-facing calls and firmware internals; keep the public headers stable.
-
-User-facing API reference wikis live in `docs/API/` (e.g. `OLED_API_WIKI.md`). When you change a public API signature or behaviour in `API/`/`API-Src/`, update the matching wiki, and bump `FW_Version`/`API_Version` in the Makefile to reflect the change.
 
 **Source layout under `src/main/`** (Cleanflight heritage): `drivers/` (MCU peripherals, IMU/ICM20948, baro/ICP10111, compass/AK09916, SPI/I2C, optical-flow PAW3903, VL53L0X/L1X ToF), `flight/` (`pid`, `imu`, `mixer`, `altitudehold`, `navigation`, plus Drona's `opticflow`/`posControl`/`posEstimate`/`acrobats`), `sensors/`, `rx/` (protocols incl. `crsf.c` for ELRS + battery telemetry), `io/`, `telemetry/`, `blackbox/`, `command/`, `config/`, `vcp/` (USB CDC), and `target/<TARGET>/` (board pin maps, feature `#define`s, linker scripts).
 
