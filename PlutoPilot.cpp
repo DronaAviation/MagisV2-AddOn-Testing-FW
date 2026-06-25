@@ -323,7 +323,7 @@ static void drawOutputPage ( void ) {
  *  Leaving the page (Back) stops the sweep and parks at 1000.
  * ============================================================================ */
 #define CURRENT_OFFSET_MA 100  // board + OLED baseline draw, subtracted from reading
-#define SERVO_STEP_MS 20       // sweep step interval
+#define SERVO_STEP_MS 50       // sweep step interval
 #define SERVO_STEP    100       // us per step -> ~1.4s each way over 1000..1700
 #define SERVO_MIN     1000
 #define SERVO_MAX     1600
@@ -527,6 +527,50 @@ static void drawMotorPage ( void ) {
   drawFooter ( pageSel == MOT_BACK );
 }
 
+/* ============================================================================
+ *  Low-battery safety guard
+ * ----------------------------------------------------------------------------
+ *  Below LOW_BATT_MV the add-on shuts every output down (digital/dimmer PWM,
+ *  servo, motors) and shows a full-screen "Battery Low / Connect to Charger"
+ *  warning, overriding whatever menu or test page was active. A hysteresis
+ *  band (recover only above LOW_BATT_CLEAR_MV) keeps the warning from
+ *  flickering when the pack hovers at the threshold or sags briefly on load.
+ * ============================================================================ */
+#define LOW_BATT_MV       3200    // trip: warn & disable below 3.2 V
+#define LOW_BATT_CLEAR_MV 3300    // recover only once back above 3.3 V
+
+static bool lowBattery = false;    // latched guard state
+
+/**
+ * @brief Refresh the latched low-battery state from the pack voltage.
+ *        Latches on below LOW_BATT_MV; clears only above LOW_BATT_CLEAR_MV.
+ */
+static void updateLowBattery ( void ) {
+  uint16_t mv = Bms_Get ( Voltage );
+  if ( mv < LOW_BATT_MV )
+    lowBattery = true;
+  else if ( mv >= LOW_BATT_CLEAR_MV )
+    lowBattery = false;
+}
+
+/**
+ * @brief Force every output to its safe default: outputs off, servo parked,
+ *        motors stopped. Idempotent; called each loop while the guard is on.
+ */
+static void disableAllOutputs ( void ) {
+  outputsReset ( );    // digital LOW, dimmer 0, PWM pin -> 0
+  servoReset ( );      // sweep off, servo parked at SERVO_MIN
+  motorReset ( );      // test off, M7/M8 -> 1000
+}
+
+/**
+ * @brief Full-screen low-battery warning: two centred lines (6px/char).
+ */
+static void drawLowBattery ( void ) {
+  Oled_Text ( ( int16_t ) ( ( 128 - 11 * 6 ) / 2 ), 24, "Battery Low" );
+  Oled_Text ( ( int16_t ) ( ( 128 - 18 * 6 ) / 2 ), 36, "Connect to Charger" );
+}
+
 /* ---- Page navigation control -------------------------------------------- */
 
 /**
@@ -628,6 +672,92 @@ static void drawPage ( uint8_t page ) {
   }
 }
 
+/* ============================================================================
+ *  Boot splash — custom startup page for the AddOn Testing firmware
+ * ----------------------------------------------------------------------------
+ *  Replaces the stock OledStartUpPage() at the top of the firmware loop(). For
+ *  the first SPLASH_MS after power-up it shows the AddOn Testing identity and
+ *  version, then clears once and hands the display back to normal rendering.
+ *
+ *  This runs in System mode at boot (before Developer Mode), so it draws via
+ *  the 21-col text grid (Oled_Print, rows 1..6 usable) and coordinates with
+ *  OledStartupPageEnd — the shared firmware flag that suppresses system
+ *  telemetry and user-framebuffer pushes while a splash is on screen. It must
+ *  be set true while the splash shows and cleared (with a display clear) once,
+ *  exactly as the stock startup page did.
+ * ============================================================================ */
+const char *const testing_fw_version = "1.0.0";    // AddOn Testing FW version
+
+#define SPLASH_MS 2000    // splash visible for 2 s after boot
+
+// Firmware-internal startup symbols (compiled as C, not exposed through the
+// public API headers) referenced directly here — the splash lives in user
+// code but hooks the boot sequence. Drawn pixel-precise into a private
+// framebuffer (not the 8px text grid) so line spacing is exact; pushed with
+// the same diff-send the system renderer uses. The API's Oled_Print() is
+// unusable here (declared C++-linkage in Oled.h but defined in C).
+extern "C" {
+  extern bool        OledStartupPageEnd;    // true while a splash owns the display
+  extern bool        OledInitStatus;        // true once the OLED I2C init completed
+  extern const char *const buildDate;       // "MMM DD YYYY" build stamp (version.c)
+  void Oled_display_Clear ( void );         // hardware clear (no-op while armed)
+  void Oled_DrawTextColor ( uint8_t *screen, int16_t x, int16_t y, const char *text, bool on );
+  void i2c_OLED_send_changed_bytes ( uint8_t *newBuf, uint8_t *oldBuf, int size );
+}
+
+// Splash layout (pixel y, 6px/char advance, 7px-tall glyphs). "Testing FW"
+// sits 2px lower than its natural 8px line pitch below "Pluto AddOn".
+#define SPL_Y_TITLE1 16    // "Pluto AddOn"
+#define SPL_Y_TITLE2 26    // "Testing FW"   (24 natural + 2px extra gap)
+#define SPL_Y_VER    40    // "FW : v<version>"
+#define SPL_Y_BUILD  52    // "Build : <date>"
+
+/**
+ * @brief AddOn Testing boot splash. Call once per firmware loop in place of
+ *        OledStartUpPage(); self-times the SPLASH_MS window and clears once.
+ */
+void plutoStartUpPage ( void ) {
+  if ( ! OledInitStatus ) return;        // OLED not up yet — nothing to draw
+
+  static bool     started = false;
+  static uint32_t startMs = 0;
+  if ( ! started ) {                     // latch the boot instant on first call
+    started = true;
+    startMs = millis ( );
+  }
+
+  if ( millis ( ) - startMs < SPLASH_MS ) {
+    char ver [ 24 ];
+    strcpy ( ver, "FW : v" );
+    strcat ( ver, testing_fw_version );
+
+    char build [ 28 ];                   // "Build : " + "MMM DD YYYY"
+    strcpy ( build, "Build : " );
+    strcat ( build, buildDate );
+
+    // Render the static splash into a private framebuffer, centred (6px/char),
+    // and re-push every frame — exactly like the stock startup page redrew its
+    // text each loop. The system renderer wipes the screen once early in boot
+    // (dev-mode false->true transition), so a one-shot push would vanish after
+    // a frame; zeroing the shadow each call forces a full redraw so the splash
+    // is restored on the very next pass and stays up for the whole window.
+    static uint8_t splashBuf [ 1024 ];
+    static uint8_t splashShadow [ 1024 ];
+    memset ( splashBuf, 0, sizeof ( splashBuf ) );
+    memset ( splashShadow, 0, sizeof ( splashShadow ) );    // defeat diff cache -> full redraw
+    Oled_DrawTextColor ( splashBuf, ( int16_t ) ( ( 128 - 11 * 6 ) / 2 ), SPL_Y_TITLE1, "Pluto AddOn", true );
+    Oled_DrawTextColor ( splashBuf, ( int16_t ) ( ( 128 - 10 * 6 ) / 2 ), SPL_Y_TITLE2, "Testing FW", true );
+    Oled_DrawTextColor ( splashBuf, ( int16_t ) ( ( 128 - ( int16_t ) strlen ( ver ) * 6 ) / 2 ), SPL_Y_VER, ver, true );
+    Oled_DrawTextColor ( splashBuf, ( int16_t ) ( ( 128 - ( int16_t ) strlen ( build ) * 6 ) / 2 ), SPL_Y_BUILD, build, true );
+    i2c_OLED_send_changed_bytes ( splashBuf, splashShadow, sizeof ( splashBuf ) );
+
+    OledStartupPageEnd = true;             // hold off telemetry/user drawing
+  } else if ( OledStartupPageEnd ) {       // window elapsed -> end splash once
+    OledStartupPageEnd = false;
+    Oled_display_Clear ( );                // wipe before normal rendering takes over
+  }
+}
+
 /**
  * Configures Pluto's receiver mode.
  * AUX channel configurations for ELRS:
@@ -665,6 +795,25 @@ void onLoopStart ( void ) {
 
 // The loop function is called in an endless loop
 void plutoLoop ( void ) {
+  // --- Low-battery safety guard (overrides everything) ---
+  // Below 3.2 V: disable all outputs and show the warning, no matter which
+  // menu or test page the user is on. Latched with hysteresis (see above).
+  updateLowBattery ( );
+  if ( lowBattery ) {
+    disableAllOutputs ( );        // kill motors/servo/PWM regardless of page
+    screen   = SCREEN_MENU;       // drop back to a safe screen on recovery
+    selected = 0;
+
+    Oled_Clear ( );
+    drawLowBattery ( );
+    Oled_Update ( );
+
+    // Keep edge-detect state fresh so a held button can't fire on recovery.
+    prevOk  = Peripheral_Read ( GPIO_3 );
+    prevNav = Peripheral_Read ( GPIO_4 );
+    return;
+  }
+
   // --- Read buttons (rising-edge detection + shared cooldown debounce) ---
   bool     okNow  = Peripheral_Read ( GPIO_3 );    // OK / Accept
   bool     navNow = Peripheral_Read ( GPIO_4 );    // Navigate

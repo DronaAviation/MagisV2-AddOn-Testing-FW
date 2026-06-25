@@ -1114,7 +1114,7 @@ void loop ( void ) {
   //!  NEW : Bi-Quad Filter integration
   //!
 
-  OledStartUpPage ( );
+  plutoStartUpPage ( );    // AddOn Testing boot splash (replaces stock OledStartUpPage)
 
   updateRx ( currentTime );
 

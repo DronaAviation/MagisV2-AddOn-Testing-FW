@@ -43,6 +43,8 @@ void plutoRxConfig ( void );
 
 void plutoInit ( void );
 
+void plutoStartUpPage ( void );
+
 void onLoopStart ( void );
 
 void plutoLoop ( void );
