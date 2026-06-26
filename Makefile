@@ -105,6 +105,10 @@ VPATH := 	$(VPATH) \
 					$(RANGING_DIR2)/platform/src
 
 
+# AddOn Testing application sources (src/addon)
+INCLUDE_DIRS := $(INCLUDE_DIRS) $(ROOT)/src/addon
+VPATH := $(VPATH) $(ROOT)/src/addon
+
 CSOURCES	:=	$(shell find $(SRC_DIR) -name '*.c')
 
 # MCU and Peripheral settings for PRIMUSX2
@@ -367,6 +371,12 @@ PRIMUS_V5_SRC = 	startup_stm32f30x_md_gcc.S \
 ifeq ($(BUILD_TYPE),BIN)
 $(TARGET)_SRC:=$($(TARGET)_SRC)\
 			PlutoPilot.cpp \
+			addon.cpp \
+			addon_common.cpp \
+			page_input.cpp \
+			page_output.cpp \
+			page_servo.cpp \
+			page_motor.cpp \
 			version.cpp
 endif               
 
