@@ -6,7 +6,8 @@
  #  File: src/addon/page_servo.cpp                                            #
  #  Brief: Servo Test page. One item + Back. Servo Out drives OUT_PWM via      #
  #         Servo_Write (1000..2000us):                                         #
- #           OK on Servo Out : start/stop a 1000->1600->1000 sweep (def 1000)  #
+ #           OK on Servo Out : start/stop a square toggle 1600<->1000 with     #
+ #           0.5s dwell at each (no ramp). Park at 1000.                       #
  #         Leaving the page stops the sweep and parks at 1000.                 #
  *******************************************************************************/
 
@@ -14,18 +15,24 @@
 
 #include "addon_common.h"
 
-#define SERVO_STEP_MS 50       // sweep step + page redraw cadence (frame)
-#define SERVO_STEP    50       // us advanced per frame; sweep time each way = (SERVO_MAX-SERVO_MIN)/SERVO_STEP * SERVO_STEP_MS
-#define SERVO_MIN     1000
-#define SERVO_MAX     1600
+#define SERVO_STEP_MS 10       // page redraw + current-sample cadence (frame)
+#define SERVO_MIN     1000     // low position + park
+#define SERVO_MAX     1600     // high position
+#define SERVO_HOLD_MS 500      // dwell time at each position before toggling
 
 // Servo-page item indices (Back is the last item).
 enum { SRV_SERVO = 0,
        SRV_BACK  = 1 };
 
-static bool     servoActive = false;     // sweep running?
-static int16_t  servoVal    = SERVO_MIN; // current pulse 1000..2000
-static int8_t   servoDir    = 1;         // sweep direction (+1 up, -1 down)
+// Output steps directly between MAX and MIN (no ramp), dwelling SERVO_HOLD_MS
+// at each before toggling to the other.
+typedef enum { PH_HOLD_MAX,
+               PH_HOLD_MIN } servo_phase_e;
+
+static bool          servoActive = false;          // sweep running?
+static int16_t       servoVal    = SERVO_MIN;       // current pulse (1000 or 1600)
+static servo_phase_e servoPhase  = PH_HOLD_MAX;     // current dwell position
+static uint32_t      holdStartMs = 0;               // millis() when this dwell began
 
 uint8_t ServoPage_ItemCount ( void ) {
   return 2;    // Servo Out, Back
@@ -38,7 +45,7 @@ uint16_t ServoPage_FrameMs ( void ) {
 void ServoPage_Reset ( void ) {
   servoActive = false;
   servoVal    = SERVO_MIN;
-  servoDir    = 1;
+  servoPhase  = PH_HOLD_MAX;
   Servo_Write ( OUT_PWM, SERVO_MIN );
 }
 
@@ -51,16 +58,15 @@ void ServoPage_Enter ( void ) {
  * @brief Advance the servo sweep (when active) and drive the output.
  */
 static void servoUpdate ( void ) {
-  if ( servoActive ) {
-    int16_t v = ( int16_t ) ( servoVal + servoDir * SERVO_STEP );
-    if ( v >= SERVO_MAX ) {
-      v        = SERVO_MAX;
-      servoDir = -1;
-    } else if ( v <= SERVO_MIN ) {
-      v        = SERVO_MIN;
-      servoDir = 1;
+  if ( servoActive && ( millis ( ) - holdStartMs >= SERVO_HOLD_MS ) ) {
+    if ( servoPhase == PH_HOLD_MAX ) {
+      servoVal   = SERVO_MIN;    // jump straight down
+      servoPhase = PH_HOLD_MIN;
+    } else {
+      servoVal   = SERVO_MAX;    // jump straight up
+      servoPhase = PH_HOLD_MAX;
     }
-    servoVal = v;
+    holdStartMs = millis ( );
   }
   Servo_Write ( OUT_PWM, ( uint16_t ) servoVal );
 }
@@ -96,9 +102,13 @@ void ServoPage_Draw ( uint8_t pageSel ) {
 void ServoPage_Action ( uint8_t sel ) {
   if ( sel == SRV_SERVO ) {
     servoActive = ! servoActive;               // start/stop sweep
-    if ( ! servoActive ) {                     // stopping -> park at default 1000
-      servoVal = SERVO_MIN;
-      servoDir = 1;
+    if ( servoActive ) {
+      servoVal   = SERVO_MAX;                  // jump straight to the high position
+      servoPhase = PH_HOLD_MAX;
+    } else {
+      servoVal   = SERVO_MIN;                  // park
+      servoPhase = PH_HOLD_MAX;
     }
+    holdStartMs = millis ( );
   }
 }
