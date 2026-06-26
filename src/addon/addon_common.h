@@ -72,11 +72,14 @@ void waveReset ( void );
 void wavePush ( uint16_t sample );
 
 /**
- * @brief Plot the stored samples as a scrolling, auto-scaled line.
+ * @brief Plot the stored samples as an auto-scaled line.
  * @param plotY Top row of the plot area.
  * @param plotH Height of the plot area in pixels.
+ * @param stretch When true the captured samples are spread across the full
+ *        plot width (fit-to-window); when false they are right-aligned at 1px
+ *        per sample (live scroll). Defaults to false.
  */
-void waveDraw ( int16_t plotY, int16_t plotH );
+void waveDraw ( int16_t plotY, int16_t plotH, bool stretch = false );
 
 /* ---- Current baseline (board + OLED), measured at boot ------------------- */
 

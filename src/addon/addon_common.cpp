@@ -93,7 +93,7 @@ uint16_t currentOffset ( void ) {
   return ( uint16_t ) ( baselineMa + CURRENT_OFFSET_MA );
 }
 
-void waveDraw ( int16_t plotY, int16_t plotH ) {
+void waveDraw ( int16_t plotY, int16_t plotH, bool stretch ) {
   if ( waveCount == 0 ) return;
   uint16_t start = ( uint16_t ) ( ( waveHead + PLOT_W - waveCount ) % PLOT_W );
 
@@ -115,14 +115,17 @@ void waveDraw ( int16_t plotY, int16_t plotH ) {
     span = WAVE_MIN_SPAN;
   }
 
-  int16_t offset = ( int16_t ) ( PLOT_W - waveCount );    // right-align newest
+  int16_t  offset = ( int16_t ) ( PLOT_W - waveCount );           // right-align newest (scroll)
+  uint16_t denom  = ( waveCount > 1 ) ? ( uint16_t ) ( waveCount - 1 ) : 1;    // stretch divisor
   int16_t prevX = 0, prevY = 0;
   for ( uint16_t i = 0; i < waveCount; i++ ) {
     uint16_t v = waveBuf [ ( start + i ) % PLOT_W ];
     if ( v < lo ) v = lo;
     else if ( v > hi ) v = hi;
     uint8_t row = ( uint8_t ) ( ( uint32_t ) ( plotH - 1 ) * ( hi - v ) / span );
-    int16_t x   = ( int16_t ) ( PLOT_X + offset + ( int16_t ) i );
+    int16_t x   = stretch
+                      ? ( int16_t ) ( PLOT_X + ( uint32_t ) i * ( PLOT_W - 1 ) / denom )    // fit to full width
+                      : ( int16_t ) ( PLOT_X + offset + ( int16_t ) i );                    // 1px per sample
     int16_t y   = ( int16_t ) ( plotY + row );
     if ( i > 0 )
       Oled_Line ( prevX, prevY, x, y );

@@ -257,10 +257,10 @@ extern "C" {
 
 // Splash layout (pixel y, 6px/char advance, 7px-tall glyphs). "Testing FW"
 // sits 2px lower than its natural 8px line pitch below "Pluto AddOn".
-#define SPL_Y_TITLE1 16    // "Pluto AddOn"
-#define SPL_Y_TITLE2 26    // "Testing FW"   (24 natural + 2px extra gap)
-#define SPL_Y_VER    40    // "FW : v<version>"
-#define SPL_Y_BUILD  52    // "Build : <date>"
+#define SPL_Y_TITLE1 8    // "Pluto AddOn"
+#define SPL_Y_TITLE2 20    // "Testing FW"   (24 natural + 2px extra gap)
+#define SPL_Y_VER    35    // "FW : v<version>"
+#define SPL_Y_BUILD  50    // "Build : <date>"
 
 /* ============================================================================
  *  Public entry points (called from PlutoPilot.cpp hooks)
