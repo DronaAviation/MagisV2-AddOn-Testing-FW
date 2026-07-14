@@ -239,7 +239,7 @@ static void drawLowBattery ( void ) {
  *  user-framebuffer pushes while a splash is on screen. The API's Oled_Print()
  *  is unusable here (declared C++-linkage in Oled.h but defined in C).
  * ============================================================================ */
-const char *const testing_fw_version = "1.0.0";    // AddOn Testing FW version
+const char *const testing_fw_version = "1.0.1";    // AddOn Testing FW version
 
 #define SPLASH_MS        2000    // splash visible for 2 s after boot
 #define SPLASH_SETTLE_MS 500     // skip this much at the start before sampling baseline current
